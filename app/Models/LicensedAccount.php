@@ -12,6 +12,9 @@ class LicensedAccount extends Model
     protected $fillable = [
         'user_id',
         'account_id',
+        'login',
+        'password',
+        'server',
         'is_active',
         'api_token',
         'hwid'
@@ -27,5 +30,21 @@ class LicensedAccount extends Model
     public function accessLogs()
     {
         return $this->hasMany(AccessLog::class);
+    }
+
+    public function trades()
+    {
+        return $this->hasMany(Trade::class);
+    }
+
+// Décryptage du mot de passe
+    public function getPasswordAttribute($value)
+    {
+        return \Illuminate\Support\Facades\Crypt::decryptString($value);
+    }
+
+    public function setPasswordAttribute($value)
+    {
+        $this->attributes['password'] = \Illuminate\Support\Facades\Crypt::encryptString($value);
     }
 }

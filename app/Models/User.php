@@ -68,7 +68,7 @@ class User extends Authenticatable
     {
         return $this->hasMany(LicensedAccount::class);
     }
-    // App\Models\User.php
+
     public function getVerifiedAmountAttribute()
     {
         return $this->payments()

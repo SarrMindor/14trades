@@ -192,12 +192,13 @@
                                                 @endif
                                             </td>
                                             <td>
-                                                @if($account->accessLogs->count() > 0)
+                                                @if($account->accessLogs && $account->accessLogs->count() > 0)
                                                     {{ $account->accessLogs->first()->created_at->diffForHumans() }}
                                                 @else
                                                     <span class="text-muted">Jamais</span>
                                                 @endif
                                             </td>
+
                                             <td>
                                                 @if($account->hwid)
                                                     <span class="badge bg-info">VERROUILLÉ</span>
@@ -207,7 +208,7 @@
                                             </td>
                                             <td>
                                                 @if(!$account->is_active)
-                                                    <form action="{{ route('client.accounts.delete', $account->id) }}" method="POST" class="d-inline">
+                                                    <form action="{{ route('client.accounts.destroy', $account->id) }}" method="POST" class="d-inline">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="btn btn-danger btn-sm"

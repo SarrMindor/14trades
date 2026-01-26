@@ -50,7 +50,7 @@ class ClientController extends Controller
     public function trades()
     {
         $user = auth()->user();
-
+        $accounts = $user->licensedAccounts()->with('trades')->get();
         // Exemple : récupérer les trades associés à l'utilisateur
         // Assure-toi que tu as une relation trades() dans User.php
         $trades = $user->trades()->orderBy('created_at', 'desc')->get();

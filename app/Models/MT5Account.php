@@ -14,10 +14,6 @@ class MT5Account extends Model
     protected $fillable = [
         'user_id',
         'account_number',
-        'broker',
-        'server',
-        'password',
-        'investor_password',
         'status',
         'balance',
         'equity',
