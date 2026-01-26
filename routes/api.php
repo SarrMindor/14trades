@@ -3,6 +3,11 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\MT5Controller;
+
+
+// Webhook MT5
+    Route::post('/mt5/webhook', [MT5Controller::class, 'receiveData']);
 
 // Routes API protégées
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -11,6 +16,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Récupérer les trades
     Route::get('/account-trades/{account}', [DashboardController::class, 'getAccountTrades']);
+
+    
 
     // Statistiques en temps réel
     Route::get('/real-time-stats', function () {
