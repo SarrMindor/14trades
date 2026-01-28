@@ -10,6 +10,42 @@ class MT5Controller extends Controller
 {
     private $secretToken = 'Trade_token';
 
+    /**
+     * Test de connexion EA ↔️ Laravel
+     * Cette route permet de vérifier que la communication fonctionne
+     */
+    public function testConnection(Request $request)
+    {
+        Log::info('🧪 Test de connexion reçu', [
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+            'token' => $request->header('X-WEBHOOK-TOKEN')
+        ]);
+
+        // Vérification du token
+        if ($request->header('X-WEBHOOK-TOKEN') !== $this->secretToken) {
+            Log::warning('❌ Test de connexion - Token invalide', [
+                'token_reçu' => $request->header('X-WEBHOOK-TOKEN')
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Token invalide',
+                'code' => 'INVALID_TOKEN'
+            ], 401);
+        }
+
+        Log::info('✅ Test de connexion réussi');
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Connexion MT5 ↔️ Laravel réussie !',
+            'server_time' => now()->toDateTimeString(),
+            'server_status' => 'online',
+            'token_valid' => true
+        ], 200);
+    }
+
     public function receiveData(Request $request)
     {
         // 🔐 Vérification du token
@@ -331,5 +367,28 @@ class MT5Controller extends Controller
                 'is_hwid_registered' => !empty($account->hwid)
             ]
         ]);
+    }
+
+    /**
+     * Statut général du serveur (pour monitoring)
+     */
+    public function serverStatus()
+    {
+        $accountsCount = MT5Account::count();
+        $activeAccountsCount = MT5Account::where('status', 'active')->count();
+        $connectedAccounts = MT5Account::where('last_sync', '>=', now()->subMinutes(2))->count();
+
+        Log::info('📊 Statut serveur demandé');
+
+        return response()->json([
+            'status' => 'success',
+            'server_status' => 'online',
+            'server_time' => now()->toDateTimeString(),
+            'statistics' => [
+                'total_accounts' => $accountsCount,
+                'active_accounts' => $activeAccountsCount,
+                'connected_accounts' => $connectedAccounts
+            ]
+        ], 200);
     }
 }
