@@ -12,6 +12,7 @@ class Trade extends Model
     protected $fillable = [
         'user_id',
         'account_number',
+        'licensed_account_id',
         'ticket',
         'symbol',
         'type',
@@ -66,5 +67,10 @@ class Trade extends Model
             return null;
         }
         return $this->open_time->diff($this->close_time);
+    }
+
+    public function account()
+    {
+        return $this->belongsTo(LicensedAccount::class, 'licensed_account_id');
     }
 }

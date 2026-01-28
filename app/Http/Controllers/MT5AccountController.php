@@ -60,86 +60,33 @@ class MT5AccountController extends Controller
     {
         $user = Auth::user();
 
+        // Validation SEULEMENT pour les 2 champs du formulaire
+        $validated = $request->validate([
+            'account_number' => 'required|numeric|digits_between:5,9|unique:mt5_accounts,account_number',
+            'email' => 'required|email|max:255',
+        ]);
+
         // Vérifier les limites
         $accountsCount = MT5Account::where('user_id', $user->id)->count();
         $maxAccounts = $this->getMaxAccounts($user->plan);
 
         if ($accountsCount >= $maxAccounts) {
-            return redirect()->route('client.accounts.index')
+            return redirect()->route('client.accounts.create')
                 ->with('error', $this->getLimitMessage($user->plan, $accountsCount));
         }
 
-        // Validation
-        $request->validate([
-            'account_number' => 'required|numeric|digits_between:5,15',
-            'password' => 'required|string|min:6',
-            'server' => 'required|string',
-            'name' => 'nullable|string|max:255',
-            'email' => 'nullable|email',
+        // Créer le compte sans vérification
+        MT5Account::create([
+            'user_id' => $user->id,
+            'account_number' => $validated['account_number'],
+            'email' => $validated['email'],
+            'status' => 'pending',
+            'is_active' => false,
+            'notes' => "Demande soumise le " . now()->format('d/m/Y H:i:s'),
         ]);
 
-        try {
-            // Vérifier si le compte existe déjà
-            $existingAccount = MT5Account::where('account_number', $request->account_number)
-                ->where('user_id', '!=', $user->id)
-                ->first();
-
-            if ($existingAccount) {
-                return back()->with('error', 'Ce compte MT5 est déjà associé à un autre utilisateur.');
-            }
-
-            // Vérifier les identifiants avec l'API MT5
-            $isValid = $this->mt5Service->verifyCredentials(
-                $request->account_number,
-                $request->password
-            );
-
-            if (!$isValid) {
-                return back()->with('error', 'Identifiants MT5 invalides. Veuillez vérifier le numéro de compte et le mot de passe.');
-            }
-
-            // Obtenir les informations du compte
-            $accountInfo = $this->mt5Service->getAccountInfo(
-                $request->account_number,
-                $request->password
-            );
-
-            if (!$accountInfo) {
-                return back()->with('error', 'Impossible de récupérer les informations du compte.');
-            }
-
-            // Créer le compte
-            $account = MT5Account::create([
-                'user_id' => $user->id,
-                'account_number' => $request->account_number,
-                'password' => Crypt::encryptString($request->password),
-                'server' => $request->server,
-                'balance' => $accountInfo['balance'] ?? 0,
-                'equity' => $accountInfo['equity'] ?? 0,
-                'margin' => $accountInfo['margin'] ?? 0,
-                'free_margin' => $accountInfo['free_margin'] ?? 0,
-                'margin_level' => $accountInfo['margin_level'] ?? 0,
-                'currency' => $accountInfo['currency'] ?? 'USD',
-                'leverage' => $accountInfo['leverage'] ?? 100,
-                'name' => $accountInfo['name'] ?? $request->name,
-                'email' => $accountInfo['email'] ?? $request->email,
-                'company' => $accountInfo['company'] ?? null,
-                'status' => $accountInfo['status'] ?? 'active',
-                'is_active' => true,
-                'last_sync' => now(),
-                'meta_data' => json_encode($accountInfo),
-            ]);
-
-            // Synchroniser les trades initiaux
-            $this->syncAccountTrades($account);
-
-            return redirect()->route('client.accounts.index')
-                ->with('success', 'Compte MT5 ajouté et synchronisé avec succès !');
-
-        } catch (\Exception $e) {
-            Log::error('Add MT5 Account Error: ' . $e->getMessage());
-            return back()->with('error', 'Erreur lors de l\'ajout du compte: ' . $e->getMessage());
-        }
+        return redirect()->route('client.accounts.index')
+            ->with('success', ' Demande envoyée ! Notre équipe vous contactera à ' . $validated['email']);
     }
 
     /**
@@ -196,6 +143,87 @@ class MT5AccountController extends Controller
     /**
      * Synchroniser tous les comptes de l'utilisateur
      */
+    /**
+     * Afficher les détails d'un compte spécifique
+     */
+    /**
+     * Afficher les détails d'un compte MT5
+     */
+    public function show($id)
+    {
+        $user = Auth::user();
+
+        // Récupérer le compte avec l'utilisateur associé
+        $account = MT5Account::with('user')
+            ->where('user_id', $user->id)
+            ->findOrFail($id);
+
+        // Calculer les statistiques basiques
+        $stats = [
+            'margin_level' => $account->margin > 0 ? ($account->equity / $account->margin) * 100 : 0,
+            'profit_loss' => $account->equity - $account->balance,
+            'profit_percentage' => $account->balance > 0 ? (($account->equity - $account->balance) / $account->balance) * 100 : 0,
+            'free_margin_percentage' => $account->margin > 0 ? ($account->free_margin / $account->margin) * 100 : 0,
+        ];
+
+        // Simulation d'historique (à remplacer par vos données réelles)
+        $history = $this->generateMockHistory($account);
+
+        return view('client.accounts.show', compact('account', 'stats', 'history'));
+    }
+
+    /**
+     * Générer des données d'historique simulées
+     */
+    private function generateMockHistory($account)
+    {
+        $history = [];
+        $startBalance = $account->balance;
+        $currentBalance = $startBalance;
+
+        // Générer 30 jours d'historique
+        for ($i = 30; $i >= 0; $i--) {
+            $date = now()->subDays($i);
+            $dailyChange = rand(-50, 100); // Variation journalière simulée
+
+            $history[] = [
+                'date' => $date->format('Y-m-d'),
+                'balance' => $currentBalance + $dailyChange,
+                'change' => $dailyChange,
+                'change_percent' => $currentBalance > 0 ? ($dailyChange / $currentBalance) * 100 : 0,
+            ];
+
+            $currentBalance += $dailyChange;
+        }
+
+        return $history;
+    }
+
+    /**
+     * Obtenir l'historique des performances du compte
+     */
+    private function getPerformanceHistory($account)
+    {
+        // Simulation d'historique - À remplacer par vos données réelles
+        $history = [];
+        $balance = $account->balance;
+
+        for ($i = 30; $i >= 0; $i--) {
+            $date = now()->subDays($i);
+            $dailyChange = rand(-100, 150); // Simulation
+
+            $history[] = [
+                'date' => $date->format('Y-m-d'),
+                'balance' => $balance + $dailyChange,
+                'change' => $dailyChange,
+                'change_percent' => $balance > 0 ? ($dailyChange / $balance) * 100 : 0,
+            ];
+
+            $balance += $dailyChange;
+        }
+
+        return $history;
+    }
     public function syncAll()
     {
         $user = Auth::user();
