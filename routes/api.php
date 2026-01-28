@@ -17,7 +17,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Récupérer les trades
     Route::get('/account-trades/{account}', [DashboardController::class, 'getAccountTrades']);
 
-    
+
 
     // Statistiques en temps réel
     Route::get('/real-time-stats', function () {

@@ -11,7 +11,7 @@
                         <i class="bi bi-pencil-square me-2"></i>
                         Éditer Utilisateur
                     </h1>
-                    <a href="{{ route('admin.users.index') }}" class="btn btn-secondary">
+                    <a href="{{ route('admin.users') }}" class="btn btn-secondary">
                         <i class="bi bi-arrow-left me-1"></i> Retour à la liste
                     </a>
                 </div>
@@ -75,7 +75,7 @@
                                 <div class="mb-3">
                                     <label class="form-label">Téléphone</label>
                                     <input type="tel" name="phone" class="form-control @error('phone') is-invalid @enderror"
-                                           value="{{ old('phone', $user->phone) }}">
+                                           value="{{ old('phone', $user->phone ?? '') }}">
                                     @error('phone')
                                     <div class="invalid-feedback">{{ $message }}</div>
                                     @enderror
@@ -126,10 +126,10 @@
                                 <div class="mb-3">
                                     <label class="form-label">Statut du compte</label>
                                     <select name="is_approved" class="form-select @error('is_approved') is-invalid @enderror">
-                                        <option value="1" {{ old('is_approved', $user->is_approved) ? 'selected' : '' }}>
+                                        <option value="1" {{ old('is_approved', $user->is_approved ? '1' : '0') == '1' ? 'selected' : '' }}>
                                             Compte approuvé
                                         </option>
-                                        <option value="0" {{ !old('is_approved', $user->is_approved) ? 'selected' : '' }}>
+                                        <option value="0" {{ old('is_approved', $user->is_approved ? '1' : '0') == '0' ? 'selected' : '' }}>
                                             Compte en attente
                                         </option>
                                     </select>
@@ -141,6 +141,7 @@
                                 <div class="mb-3">
                                     <label class="form-label">Statut d'abonnement</label>
                                     <select name="subscription_status" class="form-select @error('subscription_status') is-invalid @enderror">
+                                        <option value="">Aucun statut</option>
                                         <option value="active" {{ old('subscription_status', $user->subscription_status) == 'active' ? 'selected' : '' }}>
                                             Actif
                                         </option>
@@ -152,6 +153,9 @@
                                         </option>
                                         <option value="suspended" {{ old('subscription_status', $user->subscription_status) == 'suspended' ? 'selected' : '' }}>
                                             Suspendu
+                                        </option>
+                                        <option value="expired" {{ old('subscription_status', $user->subscription_status) == 'expired' ? 'selected' : '' }}>
+                                            Expiré
                                         </option>
                                     </select>
                                     @error('subscription_status')
@@ -165,6 +169,12 @@
                                         <option value="">Aucun plan</option>
                                         <option value="starter" {{ old('plan', $user->plan) == 'starter' ? 'selected' : '' }}>
                                             Starter
+                                        </option>
+                                        <option value="basic" {{ old('plan', $user->plan) == 'basic' ? 'selected' : '' }}>
+                                            Basic
+                                        </option>
+                                        <option value="normal" {{ old('plan', $user->plan) == 'normal' ? 'selected' : '' }}>
+                                            Normal
                                         </option>
                                         <option value="pro" {{ old('plan', $user->plan) == 'pro' ? 'selected' : '' }}>
                                             Pro
@@ -197,7 +207,7 @@
 
                                 <div class="form-check mb-3">
                                     <input type="checkbox" name="force_password_reset" id="force_password_reset"
-                                           class="form-check-input" value="1">
+                                           class="form-check-input" value="1" {{ old('force_password_reset', $user->force_password_reset) ? 'checked' : '' }}>
                                     <label class="form-check-label" for="force_password_reset">
                                         Forcer la réinitialisation du mot de passe à la prochaine connexion
                                     </label>
@@ -205,7 +215,7 @@
 
                                 <div class="form-check">
                                     <input type="checkbox" name="is_active" id="is_active"
-                                           class="form-check-input" value="1" {{ old('is_active', $user->is_active) ? 'checked' : '' }}>
+                                           class="form-check-input" value="1" {{ old('is_active', $user->is_active ?? true) ? 'checked' : '' }}>
                                     <label class="form-check-label" for="is_active">
                                         Compte activé
                                     </label>
@@ -222,7 +232,7 @@
                                 </button>
                             </div>
                             <div class="d-flex gap-3">
-                                <a href="{{ route('admin.users.index') }}" class="btn btn-secondary">
+                                <a href="{{ route('admin.users') }}" class="btn btn-secondary">
                                     Annuler
                                 </a>
                                 <button type="submit" class="btn btn-primary">
@@ -254,7 +264,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                    <form action="{{ route('admin.users.destroy', $user->id) }}" method="POST" class="d-inline">
+                    <form action="{{ route('admin.users', $user) }}" method="POST" class="d-inline">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="btn btn-danger">
@@ -270,7 +280,6 @@
 @push('styles')
     <style>
         /* Styles spécifiques à la page d'édition */
-
         .card-admin-edit {
             margin-bottom: 30px;
         }

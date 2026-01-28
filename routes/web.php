@@ -29,6 +29,9 @@ Route::middleware(['auth'])->group(function () {
         // Routes complètes pour les comptes
     Route::prefix('accounts')->name('accounts.')->group(function () {
         Route::get('/', [\App\Http\Controllers\MT5AccountController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\MT5AccountController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\MT5AccountController::class, 'store'])->name('store');
+
         Route::post('/add', [\App\Http\Controllers\MT5AccountController::class, 'store'])->name('add');
         Route::delete('/{id}', [\App\Http\Controllers\MT5AccountController::class, 'destroy'])->name('destroy');
         Route::post('/sync', [\App\Http\Controllers\MT5AccountController::class, 'sync'])->name('sync');
@@ -216,6 +219,7 @@ Route::middleware(['auth'])->group(function () {
             return view('admin.users.index', compact('users', 'activeUsers', 'inactiveUsers'));
         })->name('users');
 
+
         // Éditer un utilisateur
         Route::get('/users/{id}/edit', function ($id) {
             if (auth()->user()->role !== 'admin') {
@@ -249,6 +253,7 @@ Route::middleware(['auth'])->group(function () {
                 ->with('success', 'Utilisateur mis à jour avec succès');
         })->name('users.update');
     }); // Fin du groupe admin
+
 
     // Routes profile
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

@@ -5,147 +5,130 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class ClientController extends Controller
 {
+    /**
+     * Afficher la liste des utilisateurs
+     */
     public function index()
     {
-        // Vérifier que l'utilisateur est admin
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Accès non autorisé');
-        }
+        $users = User::orderBy('created_at', 'desc')->paginate(20);
 
-        // Récupérer les clients avec pagination
-        $clients = User::where('role', 'client')
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
-
-        // Statistiques
-        $activeClients = User::where('role', 'client')
-            ->where('is_approved', true)
+        $activeUsers = User::where('is_approved', true)
             ->where('subscription_status', 'active')
             ->count();
 
-        $pendingClients = User::where('role', 'client')
-            ->where('is_approved', false)
+        $inactiveUsers = User::where('is_approved', false)
+            ->orWhere('subscription_status', '!=', 'active')
             ->count();
 
-        return view('admin.clients.index', compact('clients', 'activeClients', 'pendingClients'));
-    }
-
-    public function edit($id)
-    {
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Accès non autorisé');
-        }
-
-        $client = User::where('role', 'client')->findOrFail($id);
-        return view('admin.clients.edit', compact('client'));
+        return view('admin.users.index', compact('users', 'activeUsers', 'inactiveUsers'));
     }
 
     /**
-     * Mettre à jour un client
+     * Afficher le formulaire d'édition
      */
-    public function update(Request $request, $id)
+    public function edit(User $user)
     {
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Accès non autorisé');
-        }
+        return view('admin.users.edit', compact('user'));
+    }
 
-        $client = User::where('role', 'client')->findOrFail($id);
-
+    /**
+     * Mettre à jour un utilisateur
+     */
+    public function update(Request $request, User $user)
+    {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'email' => [
                 'required',
                 'email',
-                Rule::unique('users')->ignore($client->id),
+                Rule::unique('users')->ignore($user->id),
             ],
             'phone' => 'nullable|string|max:20',
             'password' => 'nullable|min:8|confirmed',
+            'role' => 'required|in:admin,client,moderator',
             'is_approved' => 'boolean',
-            'subscription_status' => 'nullable|in:active,pending,inactive,suspended',
-            'plan' => 'nullable|string|max:50',
+            'is_active' => 'boolean',
+            'subscription_status' => 'nullable|in:active,pending,inactive,suspended,expired',
+            'plan' => 'nullable|in:starter,basic,normal,pro,elite',
             'subscription_ends_at' => 'nullable|date',
+            'force_password_reset' => 'boolean',
         ]);
 
-        // Mettre à jour les informations de base
-        $client->name = $validated['name'];
-        $client->email = $validated['email'];
-        $client->phone = $validated['phone'] ?? null;
-        $client->is_approved = $validated['is_approved'] ?? false;
+        // Mise à jour des informations de base
+        $user->name = $validated['name'];
+        $user->email = $validated['email'];
+        $user->phone = $validated['phone'] ?? $user->phone;
+        $user->role = $validated['role'];
+        $user->is_approved = $validated['is_approved'] ?? $user->is_approved;
+        $user->is_active = $validated['is_active'] ?? $user->is_active;
+        $user->subscription_status = $validated['subscription_status'] ?? $user->subscription_status;
+        $user->plan = $validated['plan'] ?? $user->plan;
+        $user->subscription_ends_at = $validated['subscription_ends_at'] ?? $user->subscription_ends_at;
+        $user->force_password_reset = $validated['force_password_reset'] ?? $user->force_password_reset;
 
         // Mettre à jour le mot de passe si fourni
-        if (!empty($validated['password'])) {
-            $client->password = Hash::make($validated['password']);
+        if ($request->filled('password')) {
+            $user->password = Hash::make($validated['password']);
         }
 
-        // Mettre à jour les informations d'abonnement
-        $client->subscription_status = $validated['subscription_status'] ?? null;
-        $client->plan = $validated['plan'] ?? null;
-        $client->subscription_ends_at = $validated['subscription_ends_at'] ?? null;
+        $user->save();
 
-        $client->save();
-
-        return redirect()->route('admin.clients')
-            ->with('success', 'Client mis à jour avec succès.');
+        return redirect()->route('admin.users.index')
+            ->with('success', 'Utilisateur mis à jour avec succès');
     }
 
     /**
-     * Supprimer un client
+     * Supprimer un utilisateur
      */
-    public function destroy($id)
+    public function destroy(User $user)
     {
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Accès non autorisé');
+        // Vérifier que l'utilisateur n'est pas en train de se supprimer lui-même
+        if ($user->id === auth()->id()) {
+            return redirect()->route('admin.users.index')
+                ->with('error', 'Vous ne pouvez pas supprimer votre propre compte');
         }
 
-        $client = User::where('role', 'client')->findOrFail($id);
+        $user->delete();
 
-        // Empêcher la suppression de soi-même
-        if ($client->id === auth()->id()) {
-            return redirect()->back()
-                ->with('error', 'Vous ne pouvez pas supprimer votre propre compte.');
-        }
-
-        $client->delete();
-
-        return redirect()->route('admin.clients')
-            ->with('success', 'Client supprimé avec succès.');
+        return redirect()->route('admin.users.index')
+            ->with('success', 'Utilisateur supprimé avec succès');
     }
 
+    /**
+     * Approuver un utilisateur
+     */
     public function approve($id)
     {
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Accès non autorisé');
-        }
+        $user = User::findOrFail($id);
+        $user->is_approved = true;
+        $user->save();
 
-        $client = User::findOrFail($id);
-        $client->is_approved = true;
-        $client->save();
-
-        return redirect()->route('admin.clients')
-            ->with('success', 'Client approuvé avec succès');
+        return redirect()->route('admin.users.index')
+            ->with('success', 'Utilisateur approuvé avec succès');
     }
 
+    /**
+     * Activer un abonnement
+     */
     public function activate(Request $request, $id)
     {
-        if (auth()->user()->role !== 'admin') {
-            abort(403, 'Accès non autorisé');
-        }
-
         $request->validate([
             'plan' => 'required|in:basic,normal,elite',
             'months' => 'required|integer|min:1|max:12',
         ]);
 
-        $client = User::findOrFail($id);
-        $client->subscription_status = 'active';
-        $client->plan = $request->plan;
-        $client->subscription_ends_at = now()->addMonths($request->months);
-        $client->save();
+        $user = User::findOrFail($id);
+        $user->subscription_status = 'active';
+        $user->plan = $request->plan;
+        $user->subscription_ends_at = now()->addMonths($request->months);
+        $user->save();
 
-        return redirect()->route('admin.clients')
+        return redirect()->route('admin.users.index')
             ->with('success', 'Abonnement activé avec succès');
     }
 }

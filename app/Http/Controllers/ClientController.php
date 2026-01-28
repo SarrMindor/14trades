@@ -2,142 +2,105 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\LicensedAccount;
-use App\Models\Payment;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers;
 use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class ClientController extends Controller
 {
-    public function __construct()
-    {
-        $this->middleware(['auth']);
-    }
+    /**
+     * Afficher la liste des utilisateurs
+     */
     public function index()
     {
-        $user = auth()->user();
-        $accounts = $user->licensedAccounts()->orderBy('created_at', 'desc')->get();
-        return view('client.accounts', compact('user', 'accounts'));
+        $users = User::orderBy('created_at', 'desc')->paginate(20);
+
+        $activeUsers = User::where('is_approved', true)
+            ->where('subscription_status', 'active')
+            ->count();
+
+        $inactiveUsers = User::where('is_approved', false)
+            ->orWhere('subscription_status', '!=', 'active')
+            ->count();
+
+        return view('admin.users.index', compact('users', 'activeUsers', 'inactiveUsers'));
     }
 
-
-    // Dashboard client
-    public function dashboard()
+    /**
+     * Afficher le formulaire d'édition
+     */
+    public function edit(User $user)
     {
-        $user = Auth::user();
-        $accounts = $user->licensedAccounts()->with('accessLogs')->get();
-        $payments = $user->payments()->orderBy('created_at', 'desc')->take(5)->get();
-
-        // Calculer les jours restants
-        $daysRemaining = null;
-        $user = Auth::user();
-        if ($user->subscription_ends_at) {
-            $daysRemaining = now()->diffInDays($user->subscription_ends_at, false);
-            if ($daysRemaining < 0) $daysRemaining = 0;
-        }
-
-        // Statistiques
-        $stats = [
-            'active_accounts' => $accounts->where('is_active', true)->count(),
-            'total_payments' => $payments->count(),
-            'verified_payments' => $payments->where('status', 'verified')->count(),
-            'total_accounts' => $accounts->count(),
-        ];
-
-        return view('client.dashboard', compact('user', 'accounts', 'payments', 'daysRemaining', 'stats'));
-    }
-    public function trades()
-    {
-        $user = auth()->user();
-        $accounts = $user->licensedAccounts()->with('trades')->get();
-        // Exemple : récupérer les trades associés à l'utilisateur
-        // Assure-toi que tu as une relation trades() dans User.php
-        $trades = $user->trades()->orderBy('created_at', 'desc')->get();
-
-        return view('client.trades', compact('user', 'trades'));
+        return view('admin.users.edit', compact('user'));
     }
 
-
-    // Gestion des comptes MT5
-    public function accounts()
+    /**
+     * Mettre à jour un utilisateur
+     */
+    public function update(Request $request, User $user)
     {
-        $user = Auth::user();
-        $accounts = $user->licensedAccounts()->orderBy('created_at', 'desc')->get();
-        $maxAccounts = $this->getMaxAccounts($user->plan);
-
-        return view('client.accounts', compact('accounts', 'maxAccounts', 'user'));
-    }
-
-    // Ajouter un compte MT5
-    public function addAccount(Request $request)
-    {
-        $request->validate([
-            'account_id' => 'required|string|unique:licensed_accounts,account_id|max:20',
-        ], [
-            'account_id.unique' => 'Ce numéro de compte MT5 est déjà utilisé.'
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $user->id,
+            'phone' => 'nullable|string|max:20',
+            'role' => 'required|in:admin,client,moderator',
+            'is_approved' => 'boolean',
+            'is_active' => 'boolean',
+            'subscription_status' => 'nullable|in:active,pending,inactive,suspended,expired',
+            'plan' => 'nullable|in:starter,pro,elite',
+            'subscription_ends_at' => 'nullable|date',
+            'force_password_reset' => 'boolean',
         ]);
 
-        $user = Auth::user();
-        $accountCount = $user->licensedAccounts()->count();
-        $maxAccounts = $this->getMaxAccounts($user->plan);
+        // Mise à jour des informations de base
+        $user->update([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'phone' => $validated['phone'] ?? $user->phone,
+            'role' => $validated['role'],
+            'is_approved' => $validated['is_approved'] ?? $user->is_approved,
+            'is_active' => $validated['is_active'] ?? $user->is_active,
+            'subscription_status' => $validated['subscription_status'] ?? $user->subscription_status,
+            'plan' => $validated['plan'] ?? $user->plan,
+            'subscription_ends_at' => $validated['subscription_ends_at'] ?? $user->subscription_ends_at,
+        ]);
 
-        if ($accountCount >= $maxAccounts) {
-            return back()->withErrors([
-                'account_id' => "Vous avez atteint la limite de comptes pour votre plan {$user->plan} (max: {$maxAccounts})."
+        // Gestion du mot de passe
+        if ($request->filled('password')) {
+            $request->validate([
+                'password' => 'required|min:8|confirmed',
+            ]);
+
+            $user->update([
+                'password' => Hash::make($request->password)
             ]);
         }
 
-        // Vérifier que l'utilisateur a un abonnement actif
-        if (!$user->is_approved || $user->subscription_status !== 'active') {
-            return back()->withErrors([
-                'account_id' => 'Votre compte n\'est pas encore approuvé ou votre abonnement est inactif.'
-            ]);
+        // Force password reset
+        if ($request->has('force_password_reset')) {
+            $user->force_password_reset = true;
+            $user->save();
         }
 
-        LicensedAccount::create([
-            'user_id' => $user->id,
-            'account_id' => $request->account_id,
-            'is_active' => false,
-            'api_token' => \Illuminate\Support\Str::random(40)
-        ]);
-
-        return back()->with('success', 'Compte MT5 ajouté avec succès ! L\'administrateur l\'activera sous 24h.');
+        return redirect()->route('admin.users.index')
+            ->with('success', 'Utilisateur mis à jour avec succès');
     }
 
-    // Supprimer un compte MT5
-    public function deleteAccount($id)
+    /**
+     * Supprimer un utilisateur
+     */
+    public function destroy(User $user)
     {
-        $account = LicensedAccount::findOrFail($id);
-
-        if ($account->user_id !== Auth::id()) {
-            abort(403, 'Accès non autorisé.');
+        // Vérifier que l'utilisateur n'est pas en train de se supprimer lui-même
+        if ($user->id === auth()->id()) {
+            return redirect()->route('admin.users.index')
+                ->with('error', 'Vous ne pouvez pas supprimer votre propre compte');
         }
 
-        // Vérifier si le compte est actif
-        if ($account->is_active) {
-            return back()->withErrors(['error' => 'Impossible de supprimer un compte actif. Contactez l\'administrateur.']);
-        }
+        $user->delete();
 
-        $account->delete();
-
-        return back()->with('success', 'Compte supprimé avec succès.');
-    }
-
-    // Page de paiement (redirection vers PaymentController)
-    public function payment()
-    {
-        return redirect()->route('client.payment');
-    }
-
-    // Helper: obtenir le nombre max de comptes selon le plan
-    private function getMaxAccounts($plan)
-    {
-        return match($plan) {
-            'basic' => 1,
-            'normal' => 3,
-            'elite' => 999, // Illimité
-            default => 0
-        };
+        return redirect()->route('admin.users.index')
+            ->with('success', 'Utilisateur supprimé avec succès');
     }
 }

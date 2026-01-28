@@ -15,7 +15,7 @@ class User extends Authenticatable
         'email',
         'password',
         'phone',
-        'role', // Ajoute role ici
+        'role',
         'is_approved',
         'subscription_status',
         'plan',
@@ -26,6 +26,7 @@ class User extends Authenticatable
         'password',
         'remember_token',
     ];
+
 
     protected function casts(): array
     {
