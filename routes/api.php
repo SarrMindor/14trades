@@ -6,7 +6,13 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MT5Controller;
 
 
-// Webhook MT5
+    // Webhook MT5
+    Route::post('/mt5/webhook/trade', [MT5Controller::class, 'receiveTrade']);
+    // Test de connexion (sans authentification)
+    Route::post('/mt5/test-connection', [MT5Controller::class, 'testConnection']);
+
+    // 📊 Statut du serveur (sans authentification)
+    Route::get('/mt5/status', [MT5Controller::class, 'serverStatus']);
     Route::post('/mt5/webhook', [MT5Controller::class, 'receiveData']);
 
 // Routes API protégées
