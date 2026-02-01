@@ -6,14 +6,14 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MT5Controller;
 
 
-    // Webhook MT5
-    Route::post('/mt5/webhook/trade', [MT5Controller::class, 'receiveTrade']);
-    // Test de connexion (sans authentification)
-    Route::post('/mt5/test-connection', [MT5Controller::class, 'testConnection']);
-
-    // 📊 Statut du serveur (sans authentification)
-    Route::get('/mt5/status', [MT5Controller::class, 'serverStatus']);
-    Route::post('/mt5/webhook', [MT5Controller::class, 'receiveData']);
+    Route::prefix('mt5')->group(function () {
+    Route::post('/connect', [MT5Controller::class, 'connect']);
+    Route::post('/heartbeat', [MT5Controller::class, 'heartbeat']);
+    Route::post('/disconnect', [MT5Controller::class, 'disconnect']);
+    
+    // Garder l'ancien endpoint pour la synchro
+    Route::post('/sync', [MT5Controller::class, 'receiveData']);
+});
 
 // Routes API protégées
 Route::middleware(['auth:sanctum'])->group(function () {

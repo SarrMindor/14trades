@@ -1,394 +1,194 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
 use App\Models\MT5Account;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class MT5Controller extends Controller
 {
-    private $secretToken = 'Trade_token';
+    private string $secretToken;
+    private int $heartbeatTimeout;
 
-    /**
-     * Test de connexion EA ↔️ Laravel
-     * Cette route permet de vérifier que la communication fonctionne
-     */
-    public function testConnection(Request $request)
+    public function __construct()
     {
-        Log::info('🧪 Test de connexion reçu', [
-            'ip' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-            'token' => $request->header('X-WEBHOOK-TOKEN')
-        ]);
-
-        // Vérification du token
-        if ($request->header('X-WEBHOOK-TOKEN') !== $this->secretToken) {
-            Log::warning('❌ Test de connexion - Token invalide', [
-                'token_reçu' => $request->header('X-WEBHOOK-TOKEN')
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Token invalide',
-                'code' => 'INVALID_TOKEN'
-            ], 401);
-        }
-
-        Log::info('✅ Test de connexion réussi');
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Connexion MT5 ↔️ Laravel réussie !',
-            'server_time' => now()->toDateTimeString(),
-            'server_status' => 'online',
-            'token_valid' => true
-        ], 200);
-    }
-
-    public function receiveData(Request $request)
-    {
-        // 🔐 Vérification du token
-        if ($request->header('X-WEBHOOK-TOKEN') !== $this->secretToken) {
-            Log::warning('❌ Token invalide', [
-                'token_reçu' => $request->header('X-WEBHOOK-TOKEN'),
-                'ip' => $request->ip()
-            ]);
-            
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Token invalide'
-            ], 401);
-        }
-
-        $data = $request->all();
-        Log::info('📥 Webhook MT5 reçu', $data);
-
-        // ✅ Validation des champs requis
-        if (!isset($data['login'])) {
-            Log::error('❌ Login manquant dans la requête');
-            return response()->json([
-                'status' => 'error',
-                'message' => 'login manquant'
-            ], 400);
-        }
-
-        if (!isset($data['server'])) {
-            Log::error('❌ Server manquant dans la requête');
-            return response()->json([
-                'status' => 'error',
-                'message' => 'server manquant'
-            ], 400);
-        }
-
-        if (!isset($data['status'])) {
-            Log::error('❌ Status manquant dans la requête');
-            return response()->json([
-                'status' => 'error',
-                'message' => 'status manquant'
-            ], 400);
-        }
-
-        if (!isset($data['hwid'])) {
-            Log::error('❌ HWID manquant dans la requête');
-            return response()->json([
-                'status' => 'error',
-                'message' => 'hwid manquant'
-            ], 400);
-        }
-
-        $login = $data['login'];
-        $server = $data['server'];
-        $status = $data['status'];
-        $hwid = $data['hwid'];
-        $ip = $request->ip();
-
-        // 🔍 Vérification si le compte existe dans la base de données
-        $account = MT5Account::where('account_number', $login)->first();
-
-        if (!$account) {
-            Log::warning('⛔ Compte MT5 non trouvé en base de données', [
-                'login' => $login,
-                'server' => $server,
-                'hwid' => $hwid
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Compte MT5 non autorisé. Veuillez d\'abord enregistrer ce compte.',
-                'login' => $login
-            ], 403);
-        }
-
-        // 🔍 Vérification du serveur
-        if ($account->server !== $server) {
-            Log::warning('⛔ Serveur MT5 ne correspond pas', [
-                'login' => $login,
-                'server_reçu' => $server,
-                'server_enregistré' => $account->server
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Le serveur ne correspond pas au compte enregistré',
-                'server_attendu' => $account->server,
-                'server_reçu' => $server
-            ], 403);
-        }
-
-        // 🔍 Vérification du HWID
-        if ($account->hwid === null) {
-            // Premier enregistrement du HWID
-            $account->hwid = $hwid;
-            $account->first_connected_at = now();
-            $account->save();
-            
-            Log::info('🆕 HWID enregistré pour la première fois', [
-                'login' => $login,
-                'hwid' => $hwid,
-                'ip' => $ip
-            ]);
-        } 
-        else if ($account->hwid !== $hwid) {
-            // Le HWID ne correspond pas - Machine différente
-            Log::error('🚨 ALERTE SÉCURITÉ - HWID différent détecté', [
-                'login' => $login,
-                'hwid_enregistré' => $account->hwid,
-                'hwid_reçu' => $hwid,
-                'ip' => $ip,
-                'server' => $server
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Ce compte est déjà lié à une autre machine. Contactez l\'administrateur.',
-                'hwid_enregistré' => substr($account->hwid, 0, 8) . '...',
-                'hwid_actuel' => substr($hwid, 0, 8) . '...'
-            ], 403);
-        }
-
-        // 🔍 Vérification du statut du compte
-        if ($account->status !== 'active') {
-            Log::warning('⛔ Compte MT5 désactivé', [
-                'login' => $login,
-                'status_compte' => $account->status
-            ]);
-
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Ce compte MT5 est désactivé',
-                'account_status' => $account->status
-            ], 403);
-        }
-
-        // ✅ Tout est OK - Mise à jour du last_sync et des données
-        $account->update([
-            'last_sync' => now(),
-            'last_ip' => $ip,
-            'balance' => $data['balance'] ?? $account->balance,
-            'equity' => $data['equity'] ?? $account->equity,
-        ]);
-
-        Log::info('✅ Compte MT5 synchronisé avec succès', [
-            'login' => $login,
-            'server' => $server,
-            'hwid' => substr($hwid, 0, 8) . '...',
-            'user_id' => $account->user_id
-        ]);
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Compte MT5 synchronisé',
-            'account' => [
-                'id' => $account->id,
-                'account_number' => $account->account_number,
-                'server' => $account->server,
-                'status' => $account->status,
-                'balance' => $account->balance,
-                'equity' => $account->equity,
-                'hwid_registered' => !empty($account->hwid),
-                'last_sync' => $account->last_sync,
-            ]
-        ], 200);
+        $this->secretToken = config('services.mt5.webhook_token');
+        $this->heartbeatTimeout = (int) config('services.mt5.heartbeat_timeout', 120);
     }
 
     /**
-     * Enregistrer un nouveau compte MT5 (à appeler depuis votre interface Laravel)
+     * 🔐 ENDPOINT 1 : Connexion initiale (OnInit EA)
      */
-    public function registerAccount(Request $request)
+    public function connect(Request $request)
     {
+        if (!$this->validateToken($request)) {
+            return $this->errorResponse('Token invalide', 401);
+        }
+
         $validated = $request->validate([
-            'user_id' => 'required|exists:users,id',
-            'account_number' => 'required|string|unique:m_t5_accounts,account_number',
-            'broker' => 'required|string',
+            'login'  => 'required|numeric',
             'server' => 'required|string',
-            'status' => 'required|in:active,inactive'
+            'hwid'   => 'required|string|size:64',
         ]);
 
-        $account = MT5Account::create($validated);
+        try {
+            $mt5Account = MT5Account::where('account_number', $validated['login'])
+                ->where('server', $validated['server'])
+                ->first();
 
-        Log::info('✅ Nouveau compte MT5 enregistré', [
-            'account_number' => $account->account_number,
-            'user_id' => $account->user_id
-        ]);
+            if (!$mt5Account) {
+                Log::warning('Compte MT5 introuvable', $validated);
+                return $this->errorResponse('Compte non enregistré', 404);
+            }
 
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Compte MT5 enregistré avec succès',
-            'account' => $account
-        ], 201);
-    }
+            if (!$this->validateHWID($mt5Account, $validated['hwid'])) {
+                Log::critical('HWID invalide', [
+                    'login' => $validated['login'],
+                    'hwid_fourni' => $validated['hwid'],
+                    'hwid_attendu' => $mt5Account->hwid,
+                ]);
+                return $this->errorResponse('Machine non autorisée', 403);
+            }
 
-    /**
-     * Activer/Désactiver un compte MT5
-     */
-    public function toggleStatus($id)
-    {
-        $account = MT5Account::findOrFail($id);
-        
-        $newStatus = $account->status === 'active' ? 'inactive' : 'active';
-        $account->update(['status' => $newStatus]);
+            $user = User::find($mt5Account->user_id);
+            if (!$user || $user->status !== 'active') {
+                return $this->errorResponse('Compte utilisateur désactivé', 403);
+            }
 
-        Log::info('🔄 Status du compte MT5 modifié', [
-            'account_number' => $account->account_number,
-            'ancien_status' => $account->status === 'active' ? 'inactive' : 'active',
-            'nouveau_status' => $newStatus
-        ]);
+            if ($mt5Account->status !== 'active') {
+                return $this->errorResponse('Compte MT5 désactivé', 403);
+            }
 
-        return response()->json([
-            'status' => 'success',
-            'message' => "Compte {$newStatus}",
-            'account' => $account
-        ]);
-    }
+            $mt5Account->update([
+                'is_connected'   => true,
+                'last_heartbeat' => now(),
+                'last_sync'      => now(),
+            ]);
 
-    /**
-     * Recevoir les notifications de trades
-     */
-    public function receiveTrade(Request $request)
-    {
-        // 🔐 Vérification du token
-        if ($request->header('X-WEBHOOK-TOKEN') !== $this->secretToken) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Token invalide'
-            ], 401);
-        }
-
-        $data = $request->all();
-        
-        // Validation
-        if (!isset($data['login']) || !isset($data['ticket'])) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Données manquantes'
-            ], 400);
-        }
-
-        // Vérifier que le compte existe et est actif
-        $account = MT5Account::where('account_number', $data['login'])
-                              ->where('status', 'active')
-                              ->first();
-
-        if (!$account) {
-            Log::warning('⛔ Trade rejeté - Compte non autorisé', [
-                'login' => $data['login'],
-                'ticket' => $data['ticket']
+            Log::info('EA connecté', [
+                'user_id' => $user->id,
+                'login'   => $validated['login'],
             ]);
 
             return response()->json([
-                'status' => 'error',
-                'message' => 'Compte MT5 non autorisé ou inactif'
-            ], 403);
+                'status'     => 'success',
+                'authorized' => true,
+                'message'    => 'Connexion autorisée',
+                'data'       => [
+                    'account_id'        => $mt5Account->id,
+                    'user_name'         => $user->name,
+                    'heartbeat_interval'=> 60,
+                    'heartbeat_timeout' => $this->heartbeatTimeout,
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Erreur connexion EA', [
+                'exception' => $e->getMessage(),
+            ]);
+            return $this->errorResponse('Erreur serveur', 500);
+        }
+    }
+
+    /**
+     * 💓 ENDPOINT 2 : Heartbeat
+     */
+    public function heartbeat(Request $request)
+    {
+        if (!$this->validateToken($request)) {
+            return $this->errorResponse('Token invalide', 401);
         }
 
-        // Log du trade
-        Log::info('📊 Trade MT5 reçu', [
-            'action' => $data['action'] ?? 'unknown',
-            'ticket' => $data['ticket'],
-            'symbol' => $data['symbol'] ?? 'unknown',
-            'price' => $data['price'] ?? 0,
-            'lot' => $data['lot'] ?? 0,
-            'login' => $data['login'],
-            'user_id' => $account->user_id
+        $validated = $request->validate([
+            'login'  => 'required|numeric',
+            'server' => 'required|string',
+            'hwid'   => 'required|string|size:64',
         ]);
 
-        // Vous pouvez sauvegarder le trade en base de données
-        // \App\Models\MT5Trade::create([...]);
+        $mt5Account = MT5Account::where('account_number', $validated['login'])
+            ->where('server', $validated['server'])
+            ->first();
 
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Trade enregistré',
-            'ticket' => $data['ticket']
-        ], 200);
-    }
+        if (!$mt5Account || $mt5Account->hwid !== $validated['hwid']) {
+            Log::warning('Heartbeat invalide', $validated);
+            return $this->errorResponse('Session invalide', 404);
+        }
 
-    /**
-     * Réinitialiser le HWID d'un compte (Administrateur uniquement)
-     */
-    public function resetHwid($id)
-    {
-        $account = MT5Account::findOrFail($id);
-        
-        $oldHwid = $account->hwid;
-        $account->hwid = null;
-        $account->first_connected_at = null;
-        $account->save();
+        $user = User::find($mt5Account->user_id);
+        if (
+            !$user ||
+            $user->status !== 'active' ||
+            $mt5Account->status !== 'active'
+        ) {
+            $mt5Account->update(['is_connected' => false]);
+            return $this->errorResponse('Compte désactivé - Arrêt du trading', 403);
+        }
 
-        Log::warning('🔄 HWID réinitialisé par administrateur', [
-            'account_number' => $account->account_number,
-            'ancien_hwid' => $oldHwid,
-            'user_id' => $account->user_id
+        $mt5Account->update([
+            'last_heartbeat' => now(),
+            'is_connected'   => true,
         ]);
 
         return response()->json([
-            'status' => 'success',
-            'message' => 'HWID réinitialisé. Le compte pourra se connecter depuis une nouvelle machine.',
-            'account' => $account
+            'status'           => 'success',
+            'keep_alive'       => true,
+            'heartbeat_timeout'=> $this->heartbeatTimeout,
         ]);
     }
 
     /**
-     * Voir les informations HWID d'un compte
+     * 🔌 ENDPOINT 3 : Déconnexion propre
      */
-    public function getHwidInfo($id)
+    public function disconnect(Request $request)
     {
-        $account = MT5Account::findOrFail($id);
+        if (!$this->validateToken($request)) {
+            return $this->errorResponse('Token invalide', 401);
+        }
+
+        $validated = $request->validate([
+            'login'  => 'required|numeric',
+            'server' => 'required|string',
+        ]);
+
+        MT5Account::where('account_number', $validated['login'])
+            ->where('server', $validated['server'])
+            ->update([
+                'is_connected' => false,
+            ]);
 
         return response()->json([
-            'status' => 'success',
-            'account' => [
-                'account_number' => $account->account_number,
-                'hwid' => $account->hwid,
-                'hwid_preview' => $account->hwid ? substr($account->hwid, 0, 8) . '...' : null,
-                'first_connected_at' => $account->first_connected_at,
-                'last_ip' => $account->last_ip,
-                'last_sync' => $account->last_sync,
-                'is_hwid_registered' => !empty($account->hwid)
-            ]
+            'status'  => 'success',
+            'message' => 'Déconnecté',
         ]);
     }
 
-    /**
-     * Statut général du serveur (pour monitoring)
-     */
-    public function serverStatus()
+    // ─────────────────────────────────────────
+    // MÉTHODES PRIVÉES
+    // ─────────────────────────────────────────
+
+    private function validateToken(Request $request): bool
     {
-        $accountsCount = MT5Account::count();
-        $activeAccountsCount = MT5Account::where('status', 'active')->count();
-        $connectedAccounts = MT5Account::where('last_sync', '>=', now()->subMinutes(2))->count();
+        return $request->header('X-WEBHOOK-TOKEN') === $this->secretToken;
+    }
 
-        Log::info('📊 Statut serveur demandé');
+    private function validateHWID(MT5Account $account, string $hwid): bool
+    {
+        if (empty($account->hwid)) {
+            $account->update(['hwid' => $hwid]);
+            return true;
+        }
 
+        return hash_equals($account->hwid, $hwid);
+    }
+
+    private function errorResponse(string $message, int $code)
+    {
         return response()->json([
-            'status' => 'success',
-            'server_status' => 'online',
-            'server_time' => now()->toDateTimeString(),
-            'statistics' => [
-                'total_accounts' => $accountsCount,
-                'active_accounts' => $activeAccountsCount,
-                'connected_accounts' => $connectedAccounts
-            ]
-        ], 200);
+            'status'     => 'error',
+            'authorized' => false,
+            'message'    => $message,
+        ], $code);
     }
 }

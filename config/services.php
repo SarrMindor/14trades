@@ -13,6 +13,11 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
+    'mt5' => [
+    'webhook_token' => env('MT5_WEBHOOK_TOKEN'),
+    'heartbeat_timeout' => env('MT5_HEARTBEAT_TIMEOUT', 120),
+],
+
 
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
